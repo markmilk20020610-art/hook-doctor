@@ -5,20 +5,20 @@ import time
 # --- 1. 页面基础配置 ---
 st.set_page_config(page_title="The Hook Doctor 🪝", page_icon="🩺", layout="wide")
 
-# --- 2. 初始化防抖动变量 (防止用户疯狂点击) ---
+# --- 2. 初始化防抖动变量 ---
 if "last_call_time" not in st.session_state:
     st.session_state.last_call_time = 0
 
-# --- 3. 侧边栏：设置区 ---
+# --- 3. 侧边栏：只留订阅验证 (移除了 API Key 输入) ---
 with st.sidebar:
     st.header("⚙️ Configuration")
     
-    # 输入 DeepSeek API Key
-    api_key = st.text_input("DeepSeek API Key", type="password", help="Get it from platform.deepseek.com")
+    # 这里我们不再要求用户填 API Key，而是用你自己的
+    # api_key = st.text_input(...)  <-- 这一行删掉了
     
     st.markdown("---")
     
-    # [未来功能] 订阅验证区 (目前是装饰，以后接 Gumroad)
+    # [未来功能] 订阅验证区
     st.subheader("💎 Pro Access")
     license_key = st.text_input("License Key (Optional)", placeholder="Paste Gumroad Key here")
     st.caption("Pro features: Unlimited words, Deep Rewrites.")
@@ -48,13 +48,10 @@ with col2:
     if analyze_btn:
         current_time = time.time()
         
-        # --- 防御 A: 冷却检查 (10秒内不能重复点) ---
+        # --- 防御 A: 冷却检查 ---
         if current_time - st.session_state.last_call_time < 10:
             st.warning("⏳ Whoa, slow down! The doctor is still thinking. Please wait 10 seconds.")
         
-        # --- 防御 B: 基础检查 ---
-        elif not api_key:
-            st.error("❌ Please enter your DeepSeek API Key in the sidebar!")
         elif not novel_text:
             st.warning("⚠️ Please paste your story text first!")
             
@@ -65,13 +62,22 @@ with col2:
             status_box = st.status("🧠 Dr. DeepSeek is reading & rewriting...", expanded=True)
             
             try:
+                # --- 关键修改：从 Streamlit Secrets 读取 Key ---
+                # 只有在 Streamlit Cloud 后台配置了 Secrets 才能用
+                # 如果你在本地运行，需要在本地新建一个 .streamlit/secrets.toml 文件
+                if "DEEPSEEK_API_KEY" in st.secrets:
+                    api_key = st.secrets["DEEPSEEK_API_KEY"]
+                else:
+                    st.error("❌ System Error: API Key not found in Secrets. Please contact the admin.")
+                    st.stop()
+
                 # 初始化 DeepSeek 客户端
                 client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
                 
                 # --- 核心 System Prompt (高价值版) ---
                 system_prompt = """
                 Role: You are a ruthless, data-driven Senior Editor for Royal Road (top Western web novel platform). 
-                Objective: Analyze the user's Chapter 1 AND provide a superior rewrite to demonstrate the fix.
+                Objective: Analyze the user's Chapter 1 AND provide a superior rewrite.
                 
                 Output Format (Use Markdown):
                 ## 📊 Diagnostic Scorecard
@@ -80,23 +86,19 @@ with col2:
                 - **Agency:** [Score]/10 (Is MC active or reactive?)
                 
                 ## 🩺 The Diagnosis (Brutal Honesty)
-                [Be direct. Quote the exact bad sentences. Explain WHY it fails for Western readers (e.g. passive voice, waking up clichés, info-dumps). No fluff.]
+                [Be direct. Quote the exact bad sentences. Explain WHY it fails. No fluff.]
                 
                 ## 💊 The Prescription (Strategy)
-                1. **Fix the Hook:** [Concrete idea to make the opening stronger]
-                2. **Cut the Fat:** [Identify boring parts to delete]
+                1. **Fix the Hook:** [Concrete idea]
+                2. **Cut the Fat:** [Identify boring parts]
                 
                 ## ✍️ The Rewrite (Demonstration)
-                [This is the most important part. Rewrite the first 200-300 words of their story applying your fixes. 
-                - Start In Media Res (in the middle of action).
-                - Show, Don't Tell.
-                - Make the conflict immediate. 
-                - Show the user exactly how a pro would write this scene to get more views.]
+                [Rewrite the first 200-300 words. Start In Media Res. Show, Don't Tell. Make the conflict immediate.]
                 """
                 
                 # 调用 API
                 response = client.chat.completions.create(
-                    model="deepseek-chat",  # V3 模型，便宜且快
+                    model="deepseek-chat",
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": novel_text}
@@ -113,8 +115,3 @@ with col2:
             except Exception as e:
                 status_box.update(label="❌ Error occurred", state="error")
                 st.error(f"Error details: {e}")
-                st.info("Check if your API Key is correct and you have balance.")
-
-# 页脚
-st.markdown("---")
-st.caption("Powered by DeepSeek V3 | Designed for Indie Authors")
